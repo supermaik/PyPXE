@@ -21,7 +21,7 @@ cidr2mask() {
 
   echo $mask
 }
-ipaddr=$(ip addr show $1 | grep inet | sed "s/ brd.*//;s/.*inet //;s/\/.*//")
+ipaddr=$(ip addr show $1 | grep 'inet\s' | sed "s/ brd.*//;s/.*inet //;s/\/.*//")
 broadcast=$(ip addr show $1 | grep inet.\*brd | sed "s/.*brd\ //;s/\ scope.*//g")
 offerfrom=$(echo $ipaddr | sed "s/[0-9]*$//;s/$/100/")
 offerto=$(echo $ipaddr | sed "s/[0-9]*$//;s/$/150/")
