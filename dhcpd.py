@@ -19,7 +19,7 @@ pxefilename='/netboot/pxelinux.0'
 
 leases=[]
 #next line creates the (blank) leases table. This probably isn't necessary.
-for ip in ['192.168.101.1 inet6 fe80::230:a7ff:fe00:a9c'+str(x) for x in range(int(offerfrom[offerfrom.rfind('.')+1:]),int(offerto[offerto.rfind('.')+1:])+1)]:
+for ip in ['192.168.101.'+str(x) for x in range(int(offerfrom[offerfrom.rfind('.')+1:]),int(offerto[offerto.rfind('.')+1:])+1)]:
    leases.append([ip,False,'000000000000',0])
 
 def release(): #release a lease after timelimit has expired

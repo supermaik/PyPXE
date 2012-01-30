@@ -10,7 +10,8 @@ cidr2mask() {
 
   for ((i=0;i<4;i+=1)); do
     if [ $i -lt $full_octets ]; then
-      mask+=255
+      m
+      ask+=255
     elif [ $i -eq $full_octets ]; then
       mask+=$((256 - 2**(8-$partial_octet)))
     else
