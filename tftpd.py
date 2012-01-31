@@ -1,13 +1,16 @@
 #!/usr/bin/env python
-import socket,binascii,os
+import socket, IN, binascii, os
 from math import ceil
 from sys import exit
+
+iface_listen = 'eth1.101'
 
 host = ''
 port = 69
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE, iface_listen+'\0')
 s.bind((host, port))
 
 def group(s, n): return [s[i:i+n] for i in xrange(0, len(s), n)]
