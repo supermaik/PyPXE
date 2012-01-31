@@ -4,6 +4,8 @@
 import socket, IN, binascii, time, fcntl, struct
 from sys import exit
 
+# TODO: Standardize logging w/ debug option
+
 iface_listen = 'eth1.101'
 
 def get_ip_address(ifname):
