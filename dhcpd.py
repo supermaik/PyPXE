@@ -1,19 +1,34 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 #dhcpd.py pure python dhcp server
 #pxe capable
-import socket, binascii,time
+import socket, binascii, time, fcntl, struct
 from sys import exit
+
+iface_listen = 'eth1.101'
+
+def get_ip_address(ifname):
+   s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+   return socket.inet_ntoa(fcntl.ioctl(
+      s.fileno(),
+      0x8915,  # SIOCGIFADDR
+      struct.pack('256s', ifname[:15])
+   )[20:24])
+   
 host = ''
 port = 67
-serverhost='192.168.101.1'
+
+print "Listening on " + host + ":" + str(port)
+
+serverhost=str(get_ip_address(iface_listen))
 offerfrom='192.168.101.100'
 offerto='192.168.101.150'
 subnetmask='255.255.255.0'
 broadcast='192.168.101.255'
 router=''
+   
 dnsserver='10.100.0.11'
 leasetime=86400 #int
-
+   
 tftpserver='192.168.101.1'
 pxefilename='/netboot/pxelinux.0'
 
@@ -28,7 +43,7 @@ def release(): #release a lease after timelimit has expired
          if time.time()+leasetime == leasetime:
              continue
          if lease[-1] > time.time()+leasetime:
-            print "Released",lease[0]
+            print "Released lease for:",lease[0]
             lease[1]=False
             lease[2]='000000000000'
             lease[3]=0
@@ -67,39 +82,52 @@ def reqparse(message): #handles either DHCPDiscover or DHCPRequest
    hexmessage=binascii.hexlify(message)
    messagesplit=[binascii.hexlify(x) for x in slicendice(message)]
    dhcpopt=messagesplit[15][:6] #hope DHCP type is first. Should be.
-   if dhcpopt == '350101':
-      #DHCPDiscover
+   client_hwaddr = messagesplit[11]
+   if dhcpopt == '350101': #DHCPDiscover
+      print "Received: DHCPDISCOVER from:", client_hwaddr
       #craft DHCPOffer
       #DHCPOFFER creation:
       #options = \xcode \xlength \xdata
-      lease=getlease(messagesplit[11])
-      print 'Leased:',lease
-      data='\x02\x01\x06\x00'+binascii.unhexlify(messagesplit[4])+'\x00\x04'
-      data+='\x80\x00'+'\x00'*4+socket.inet_aton(lease)
-      data+=socket.inet_aton(serverhost)+'\x00'*4
-      data+=binascii.unhexlify(messagesplit[11])+'\x00'*10+'\x00'*192
-      data+='\x63\x82\x53\x63'+'\x35\x01\x02'+'\x01\x04'
-      data+=socket.inet_aton(subnetmask)+'\x36\x04'+socket.inet_aton(serverhost)
-      data+='\x1c\x04'+socket.inet_aton(broadcast)+'\x03\x04'
-      data+=socket.inet_aton(router)+'\x06\x04'+socket.inet_aton(dnsserver)
-      data+='\x33\x04'+binascii.unhexlify(hex(leasetime)[2:].rjust(8,'0'))
-      data+='\x42'+binascii.unhexlify(hex(len(tftpserver))[2:].rjust(2,'0'))+tftpserver
-      data+='\x43'+binascii.unhexlify(hex(len(pxefilename)+1)[2:].rjust(2,'0'))
-      data+=pxefilename+'\x00\xff'
-   elif dhcpopt == '350103':
-      #DHCPRequest
+      try:
+         lease=getlease(client_hwaddr)
+      except:
+         print 'ERROR: Could not obtain lease for', client_hwaddr
+         return
+      else:
+         print 'Lease obtained:',lease, '('+client_hwaddr+')'
+      data='\x02\x01\x06\x00'+binascii.unhexlify(messagesplit[4])+'\x00\x04' # OP+HTYPE+HLEN+HOPS+XID+SECS
+      data+='\x80\x00'+'\x00'*4+socket.inet_aton(lease) # FLAGS+CIADDR+YIADDR
+      data+=socket.inet_aton(serverhost)+'\x00'*4 # SIADDR+GIADDR
+      data+=binascii.unhexlify(messagesplit[11])+'\x00'*10+'\x00'*192 # CHADDR
+      data+='\x63\x82\x53\x63'+'\x35\x01\x02' # Magic Cookie+DHCP Option 53: DHCP Offer
+      data+='\x01\x04'+socket.inet_aton(subnetmask) # DHCP Option 1 (netmask)+netmask
+      data+='\x36\x04'+socket.inet_aton(serverhost) # DHCP Option 54 (DHCP server)+dhcp server
+      data+='\x1c\x04'+socket.inet_aton(broadcast) # DHCP Option 28 (Broadcast address)+broadcast address
+      if router != '':
+         data+='\x03\x04'+socket.inet_aton(router) # DHCP Option 3 (Router)+router
+      data+='\x06\x04'+socket.inet_aton(dnsserver) # DHCP Option 6 (DNS Servers)+dns server
+      data+='\x33\x04'+binascii.unhexlify(hex(leasetime)[2:].rjust(8,'0')) # DHCP Option 51 (Lease time)+lease time
+      data+='\x42'+binascii.unhexlify(hex(len(tftpserver))[2:].rjust(2,'0'))+tftpserver # DHCP Option 66 (TFTP server name)+tftp server
+      data+='\x43'+binascii.unhexlify(hex(len(pxefilename)+1)[2:].rjust(2,'0'))+pxefilename # DHCP Option 67 (Bootfile name)+boot filename
+      data+='\x00\xff'
+      print "Generated: DHCPOFFER"
+   elif dhcpopt == '350103': #DHCPRequest
+      print "Received: DHCPREQUEST from:", client_hwaddr
       #craft DHCPACK
-      data='\x02\x01\x06\x00'+binascii.unhexlify(messagesplit[4])+'\x00'*8
-      data+=binascii.unhexlify(messagesplit[15][messagesplit[15].find('3204')+4:messagesplit[15].find('3204')+12])
-      data+=socket.inet_aton(serverhost)+'\x00'*4
-      data+=binascii.unhexlify(messagesplit[11])+'\x00'*202
-      data+='\x63\x82\x53\x63'+'\x35\x01\05'+'\x36\x04'+socket.inet_aton(serverhost)
-      data+='\x01\x04'+socket.inet_aton(subnetmask)+'\x03\x04'
-      data+=socket.inet_aton(serverhost)+'\x33\x04'
-      data+=binascii.unhexlify(hex(leasetime)[2:].rjust(8,'0'))
-      data+='\x42'+binascii.unhexlify(hex(len(tftpserver))[2:].rjust(2,'0'))
-      data+=tftpserver+'\x43'+binascii.unhexlify(hex(len(pxefilename)+1)[2:].rjust(2,'0'))
-      data+=pxefilename+'\x00\xff'
+      data='\x02\x01\x06\x00'+binascii.unhexlify(messagesplit[4])+'\x00\x00'+'\x00\x00'+'\x00'*4 # OP+HTYPE+HLEN+HOPS+XID+SECS+FLAGS+CIADDR
+      data+=binascii.unhexlify(messagesplit[15][messagesplit[15].find('3204')+4:messagesplit[15].find('3204')+12]) # YIADDR
+      data+=socket.inet_aton(serverhost)+'\x00'*4 # SIADDR+GIADDR
+      data+=binascii.unhexlify(messagesplit[11])+'\x00'*10+'\x00'*192 # CHADDR
+      data+='\x63\x82\x53\x63'+'\x35\x01\05' # Magic Cookie+DHCP Option 53: DHCP ACK
+      data+='\x36\x04'+socket.inet_aton(serverhost) # DHCP Option 54 (DHCP server)+dhcp server
+      data+='\x01\x04'+socket.inet_aton(subnetmask) # DHCP Option 1 (netmask)+netmask
+      if router != '':
+         data+='\x03\x04'+socket.inet_aton(serverhost) # DHCP Option 3 (Router)+router
+      data+='\x33\x04'+binascii.unhexlify(hex(leasetime)[2:].rjust(8,'0')) # DHCP Option 51 (Lease time)+lease time
+      data+='\x42'+binascii.unhexlify(hex(len(tftpserver))[2:].rjust(2,'0'))+tftpserver # DHCP Option 66 (TFTP server name)+tft server
+      data+='\x43'+binascii.unhexlify(hex(len(pxefilename)+1)[2:].rjust(2,'0'))+pxefilename # DHCP Option 67 (Bootfile name)+boot filename
+      data+='\x00\xff'
+      print "Generated: DHCPACK"
    return data
 
 while 1: #main loop
@@ -109,7 +137,9 @@ while 1: #main loop
            continue #only serve if a dhcp request
         data=reqparse(message) #handle request
         if data:
-           s.sendto(data,('<broadcast>',68)) #reply
+#           s.sendto(data,('<broadcast>',68)) #reply
+           s.sendto(data,(broadcast,68)) #reply
+           print "Sent reply"
         release() #update releases table
     except KeyboardInterrupt:
         exit()
