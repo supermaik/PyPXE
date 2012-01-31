@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #dhcpd.py pure python dhcp server
 #pxe capable
-import socket, binascii, time, fcntl, struct
+import socket, IN, binascii, time, fcntl, struct
 from sys import exit
 
 iface_listen = 'eth1.101'
@@ -26,7 +26,7 @@ subnetmask='255.255.255.0'
 broadcast='192.168.101.255'
 router=''
    
-dnsserver='10.100.0.11'
+dnsserver=''
 leasetime=86400 #int
    
 tftpserver='192.168.101.1'
@@ -63,6 +63,7 @@ def getlease(hwaddr): #return the lease of mac address, or create if doesn't exi
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+s.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE, iface_listen+'\0')
 s.bind((host, port))
 #s.sendto(data,(ip,port))
 
@@ -105,7 +106,8 @@ def reqparse(message): #handles either DHCPDiscover or DHCPRequest
       data+='\x1c\x04'+socket.inet_aton(broadcast) # DHCP Option 28 (Broadcast address)+broadcast address
       if router != '':
          data+='\x03\x04'+socket.inet_aton(router) # DHCP Option 3 (Router)+router
-      data+='\x06\x04'+socket.inet_aton(dnsserver) # DHCP Option 6 (DNS Servers)+dns server
+      if dnsserver != '':
+         data+='\x06\x04'+socket.inet_aton(dnsserver) # DHCP Option 6 (DNS Servers)+dns server
       data+='\x33\x04'+binascii.unhexlify(hex(leasetime)[2:].rjust(8,'0')) # DHCP Option 51 (Lease time)+lease time
       data+='\x42'+binascii.unhexlify(hex(len(tftpserver))[2:].rjust(2,'0'))+tftpserver # DHCP Option 66 (TFTP server name)+tftp server
       data+='\x43'+binascii.unhexlify(hex(len(pxefilename)+1)[2:].rjust(2,'0'))+pxefilename # DHCP Option 67 (Bootfile name)+boot filename
